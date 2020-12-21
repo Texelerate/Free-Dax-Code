@@ -1,0 +1,38 @@
+//1st Query FiscalMonthLookup - Create this query first as it will be merged with the DimCalendar query below
+
+let
+    Source = {Number.From(Start_FY)..Number.From(Date.AddMonths(Start_FY,12))},
+    #"Converted to Table" = Table.FromList(Source, Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+    #"Changed Type" = Table.TransformColumnTypes(#"Converted to Table",{{"Column1", type date}}),
+    #"Inserted End of Month" = Table.AddColumn(#"Changed Type", "End of Month", each Date.EndOfMonth([Column1]), type date),
+    #"Extracted Month Name" = Table.TransformColumns(#"Inserted End of Month", {{"Column1", each Date.MonthName(_), type text}}),
+    #"Removed Duplicates" = Table.Distinct(#"Extracted Month Name"),
+    #"Renamed Columns" = Table.RenameColumns(#"Removed Duplicates",{{"Column1", "Month_Name"}}),
+    #"Added Index" = Table.AddIndexColumn(#"Renamed Columns", "Index", 1, 1, Int64.Type)
+in
+    #"Added Index"
+    
+
+//2nd Query DimCalendar - Create a new blank query and paste the below code into the advanced editor
+
+let
+    Source = {Number.From(BS_Start)..Number.From(Date.AddMonths(Start_FY,12))},
+    #"Converted to Table" = Table.RenameColumns(Table.TransformColumnTypes(Table.FromList(Source, Splitter.SplitByNothing(), null, null, ExtraValues.Error),{{"Column1", type date}}),{{"Column1", "Calendar_date"}}),
+    #"Inserted Month Name" = Table.AddColumn(#"Converted to Table", "Month Name", each Date.MonthName([Calendar_date]), type text),
+    #"Merged Queries" = Table.NestedJoin(#"Inserted Month Name", {"Month Name"}, FiscalMonthLookup, {"Month_Name"}, "FiscalMonthLookup", JoinKind.LeftOuter),
+    #"Expanded FiscalMonthLookup" = Table.ExpandTableColumn(#"Merged Queries", "FiscalMonthLookup", {"Index"}, {"Index"}),
+    #"Renamed Columns1" = Table.RenameColumns(#"Expanded FiscalMonthLookup",{{"Index", "Fiscal_month"}}),
+    #"Inserted End of Month" = Table.AddColumn(#"Renamed Columns1", "End of Month", each Date.EndOfMonth([Calendar_date]), type date),
+    #"Added Custom1" = Table.TransformColumnTypes(Table.AddColumn(#"Inserted End of Month", "Fiscal_year", each if [Fiscal_month] < Date.Month([End of Month]) then Date.Year([End of Month])+1 else Date.Year([End of Month])),{{"Fiscal_year", Int64.Type}}),
+    #"Added Custom2" = Table.AddColumn(#"Added Custom1", "Fiscal_quarter", each "Q"&Text.From(Number.RoundUp([Fiscal_month]/3,0))),
+    #"Added Custom3" = Table.AddColumn(#"Added Custom2", "Month_Year", each Date.ToText([End of Month],"MMM-yy")),
+    #"Inserted Days in Month" = Table.AddColumn(#"Added Custom3", "Days in Month", each Date.DaysInMonth([Calendar_date]), Int64.Type),
+    #"Added Custom4" = Table.AddColumn(#"Inserted Days in Month", "Custom", each if [End of Month] = [Calendar_date] then [Days in Month] else 0),
+    #"Removed Columns" = Table.RemoveColumns(#"Added Custom4",{"Days in Month"}),
+    #"Renamed Columns" = Table.RenameColumns(#"Removed Columns",{{"Custom", "Days in Month"}}),
+    #"Changed Type" = Table.TransformColumnTypes(#"Renamed Columns",{{"Days in Month", type number}}),
+    #"Reordered Columns" = Table.ReorderColumns(#"Changed Type",{"Calendar_date", "End of Month", "Fiscal_month", "Fiscal_year", "Fiscal_quarter", "Month_Year", "Days in Month", "Month Name"}),
+    #"Removed Columns1" = Table.RemoveColumns(#"Reordered Columns",{"Month Name"})
+in
+    #"Removed Columns1"
+    
